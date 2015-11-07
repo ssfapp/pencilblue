@@ -59,7 +59,7 @@ module.exports = function(pb) {
         var options = {
             view: 'editor',
             style: {
-                "height": 100px;
+                "max-height": (flag.style.maxHeight || '')
             }
         };
         var ms = new pb.MediaService();
