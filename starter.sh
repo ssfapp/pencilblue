@@ -6,4 +6,3 @@ then
         cd /home/www/test
         pbctrl start forever  >> startlog.txt 2>&1
 fi
-
