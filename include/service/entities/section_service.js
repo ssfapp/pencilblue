@@ -703,8 +703,12 @@ module.exports = function SectionServiceModule(pb) {
         else if (navItem.type === 'article') {
             navItem.url = pb.UrlService.urlJoin('/article', navItem.item);
         }
+/* 
+ * Not the best way to do it but it works for now 
+ * Should really track down why the configured page name is not working
+*/
         else if (navItem.type === 'page') {
-            navItem.url = pb.UrlService.urlJoin('/page', navItem.item);
+            navItem.url = pb.UrlService.urlJoin('/page', navItem.name.toLowerCase());
         }
         else {
             navItem.url = '#';
