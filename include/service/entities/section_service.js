@@ -150,6 +150,41 @@ module.exports = function SectionServiceModule(pb) {
         }
         return orphans;
     };
+    
+        /**
+     *
+     * @private
+     * @method getSectionMapIndex
+     * @param {String} sid
+     * @param {Array} sectionMap
+     * @return {Object}
+     */
+    SectionService.prototype.getSectionMapIndex = function(sid, sectionMap) {
+
+        //inspect the top level
+        var result = {
+            index: -1,
+            childIndex: -1
+        };
+        for (var i = sectionMap.length - 1; i >= 0; i--) {
+
+            var item = sectionMap[i];
+            if (item.uid === sid) {
+                result.index = i;
+            }
+            else if (util.isArray(item.children)) {
+
+                for (var j = item.children.length - 1; j >= 0; j--) {
+
+                    var child = item.children[j];
+                    if (child.uid === sid) {
+                        result.childIndex = j;
+                    }
+                }
+            }
+        }
+        return result;
+    };
 
     /**
      * 
@@ -179,26 +214,57 @@ module.exports = function SectionServiceModule(pb) {
             if(mapWasNull) {
                 sectionMap = [];
             }
-
+            
+            //check if the section already exist in sectionMap
+            var sectionIndex = self.getSectionMapIndex(sid, sectionMap);
             //remove the section from the map
-            self._removeFromSectionMap(sid, sectionMap);
+            var orphans = self._removeFromSectionMap(sid, sectionMap);
 
             //make a top level item if there is no parent or the map was originally
             //empty (means its impossible for there to be a parent)
+            var navItem = {
+                uid: sid,
+                children: orphans
+            };
             if (mapWasNull || !section.parent) {
-                sectionMap.push({uid: sid, children: []});
+                
+                //we are attaching the items back to a parent.  There are no 
+                //orphans to return in the callback.
+                orphans = [];
+                
+                if (sectionIndex.index > -1) {
+                    sectionMap.splice(sectionIndex.index, 0, navItem);
+                }
+                else {
+                    sectionMap.push(navItem);
+                }
             }
             else {//set as child of parent in map
 
+                //we only support two levels so ensure we drop any children
+                navItem.children = undefined;
                 for (var i = 0; i < sectionMap.length; i++) {
                     if (sectionMap[i].uid == section.parent) {
-                        sectionMap[i].children.push({uid: sid});
+                        if (sectionIndex.childIndex > -1) {
+                            sectionMap[i].children.splice(sectionIndex.childIndex, 0, navItem);
+                        }
+                        else {
+                            sectionMap[i].children.push(navItem);
+                        }
                         break;
                     }
                 }
             }
 
-            pb.settings.set('section_map', sectionMap, cb);
+            pb.settings.set('section_map', sectionMap, function(err, settingSaveResult){
+                if (util.isError(err)){
+                    return cb(err);
+                }
+                else if (!settingSaveResult) {
+                    return cb(new Error('Failed to persist cached navigation map'));
+                }
+                cb(null, orphans);
+            });
         });
     };
 
@@ -652,8 +718,15 @@ module.exports = function SectionServiceModule(pb) {
                 }
 
                 //update the navigation map
-                self.updateNavMap(navItem, function() {
-
+                self.updateNavMap(navItem, function(err, orphans) {
+                    if (util.isError(err)) {
+                        return cb(err);
+                    }
+                    else if (orphans.length === 0) {
+                        //we kept the children so there is nothing to do
+                        return cb(null, true);
+                    }
+                    
                     //ok, now we can delete the orhphans if they exist
                     self.deleteChildren(navItem[pb.DAO.getIdField()], cb);
                 });
@@ -703,12 +776,8 @@ module.exports = function SectionServiceModule(pb) {
         else if (navItem.type === 'article') {
             navItem.url = pb.UrlService.urlJoin('/article', navItem.item);
         }
-/* 
- * Not the best way to do it but it works for now 
- * Should really track down why the configured page name is not working
-*/
         else if (navItem.type === 'page') {
-            navItem.url = pb.UrlService.urlJoin('/page', navItem.name.toLowerCase());
+            navItem.url = pb.UrlService.urlJoin('/page', navItem.item);
         }
         else {
             navItem.url = '#';

@@ -26,8 +26,6 @@ module.exports = function(pb) {
     var BaseController   = pb.BaseController;
     var Comments         = pb.CommentService;
     var ArticleServiceV2 = pb.ArticleServiceV2;
-    var dao = new pb.DAO();
-
 
     /**
      * Get articles within indices, for real time pagination
@@ -69,8 +67,6 @@ module.exports = function(pb) {
 
     GetArticles.prototype.render = function(cb) {
         var self = this;
-        var _ = require('lodash');
-        var cheerio = require('cheerio');
         
         this.getContent(function(err, articles) {
             if (util.isError(err)) {
@@ -82,63 +78,15 @@ module.exports = function(pb) {
                 if (util.isError(err)) {
                     return cb(err);
                 }
-
-                /*
-                 * Grab the user's favorites
-                 */
-                var faves = null,
-                    where = { user_id: self.session.authentication.user_id};
-                dao.q('favorite', { where: where }, function(err, faves) {
-                    /*
-                     * Load already rendered content and toggle favorite widget
-                     */
-                    var $ = cheerio.load(content.toString());
-
-                    $('.ssf-fave').each(function() {
-                        var currentObject = this;
-                        /*
-                         *  If there is not a logged in user
-                         */
-                        if(self.session.authentication.user_id === null) {
-                            $(currentObject).html('<i class="fa fa-star-o"></i>');
-                            $(currentObject).attr('data-original-title', 'Sign in to use Favorites');
-                            $(currentObject).attr('href', 'javascript:;');
-                        }
-                        else {
-                            var object_id = $(currentObject).attr('data-fave-id'),
-                                fave = _.filter(faves, {favorites: [{object_id: object_id}]})[0],
-                                star = '<i class="fa fa-star-o"></i>',
-                                title = 'Add toFavorites',
-                                selected = false;
-
-                            if(fave) {
-                                _.each(fave.favorites, function(f) {
-                                    if(object_id === f.object_id) {
-                                        if(f.favorited) {
-                                            star = '<i class="fa fa-star"></i>';
-                                            title = 'Remove from Favorites';
-                                            selected = true;
-                                        }
-                                    }
-                                });
-                            }
-
-                            $(currentObject).html(star);
-                            $(currentObject).attr('disabled', false);
-                            $(currentObject).attr('data-original-title', title);
-                            if(selected) { $(currentObject).addClass('ssf-selected'); }
-                        };
-                    });
-
-                    var data = {
-                        count: articles.length, 
-                        articles: $.html(),
-                        limit: self.getLimit(),
-                        offset: self.getOffset()
-                    };
-                    cb({
-                        content: BaseController.apiResponse(pb.BaseController.API_SUCCESS, 'success', data)
-                    });
+                
+                var data = {
+                    count: articles.length, 
+                    articles: content.toString(),
+                    limit: self.getLimit(),
+                    offset: self.getOffset()
+                };
+                cb({
+                    content: BaseController.apiResponse(pb.BaseController.API_SUCCESS, 'success', data)
                 });
             });
         });
@@ -188,7 +136,6 @@ module.exports = function(pb) {
             limit: limit,
             offset: offset
         };
-        
         this.service.getAll(opts, cb);
     };
 

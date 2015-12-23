@@ -705,8 +705,8 @@ module.exports = function ArticleServiceModule(pb) {
                 allowfullscreen: ""
             }
         };
-        if (flag.style.maxheight) {
-            options.style['max-height'] = flag.style.maxheight;
+        if (flag.style.maxHeight) {
+            options.style['max-height'] = flag.style.maxHeight;
         }
         this.mediaService.render(data, options, function(err, html) {
             if (util.isError(err)) {

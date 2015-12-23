@@ -515,8 +515,8 @@ module.exports = function MediaServiceModule(pb) {
         }
 
         //ensure the max height is set if explicity set for media replacement
-        if (flag.style.maxheight) {
-            options.style['max-height'] = flag.style.maxheight;
+        if (flag.style.maxHeight) {
+            options.style['max-height'] = flag.style.maxHeight;
         }
         this.renderById(flag.id, options, cb);
     };
