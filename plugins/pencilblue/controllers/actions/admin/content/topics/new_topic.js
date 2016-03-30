@@ -16,15 +16,15 @@
 */
 
 module.exports = function(pb) {
-    
+
     //pb dependencies
     var util = pb.util;
-    
+
     /**
      * Creates a new topic
      */
     function NewTopic(){}
-    util.inherits(NewTopic, pb.BaseController);
+    util.inherits(NewTopic, pb.BaseAdminController);
 
     NewTopic.prototype.render = function(cb) {
         var self = this;
@@ -39,26 +39,25 @@ module.exports = function(pb) {
                 return;
             }
 
-            var dao = new pb.DAO();
-            dao.count('topic', {name: post.name}, function(err, count) {
+            self.siteQueryService.count('topic', {name: post.name}, function(err, count) {
                 if(count > 0) {
                     cb({
                         code: 400,
-                        content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.get('EXISTING_TOPIC'))
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.g('topics.EXISTING_TOPIC'))
                     });
                     return;
                 }
 
                 var topicDocument = pb.DocumentCreator.create('topic', post);
-                dao.save(topicDocument, function(err, result) {
+                self.siteQueryService.save(topicDocument, function(err, result) {
                     if(util.isError(err)) {
                         return cb({
                             code: 500,
-                            content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.get('ERROR_SAVING'))
+                            content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.g('generic.ERROR_SAVING'))
                         });
                     }
 
-                    cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, topicDocument.name + ' ' + self.ls.get('CREATED'))});
+                    cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, topicDocument.name + ' ' + self.ls.g('admin.CREATED'))});
                 });
             });
         });

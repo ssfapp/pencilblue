@@ -16,15 +16,15 @@
 */
 
 module.exports = function(pb) {
-    
+
     //pb dependencies
     var util = pb.util;
-    
+
     /**
      * Saves the site's content settings
      */
     function Content(){}
-    util.inherits(Content, pb.BaseController);
+    util.inherits(Content, pb.BaseAdminController);
 
     Content.prototype.render = function(cb) {
         var self = this;
@@ -39,16 +39,16 @@ module.exports = function(pb) {
                 return;
             }
 
-            pb.settings.set('content_settings', post, function(data) {
+            self.settings.set('content_settings', post, function(data) {
                 if(util.isError(data)) {
                     cb({
                         code: 500,
-                        content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.get('ERROR_SAVING'), result)
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.g('generic.ERROR_SAVING'), result)
                     });
                     return;
                 }
 
-                cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, self.ls.get('CONTENT_SETTINGS') + ' ' +  self.ls.get('EDITED'))});
+                cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, self.ls.g('site_settings.CONTENT_SETTINGS') + ' ' +  self.ls.g('admin.EDITED'))});
             });
         });
     };

@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015  PencilBlue, LLC
+Copyright (C) 2016  PencilBlue, LLC
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -18,127 +18,167 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //dependencies
 var async = require('async');
 
-module.exports = function SignUpModule(pb) {
+module.exports = function (pb) {
 
-  //pb dependencies
-  var util = pb.util;
-  var BaseController = pb.BaseController;
-  var FormController = pb.FormController;
+    //pb dependencies
+    var util = pb.util;
+    var BaseController = pb.BaseController;
+    var FormController = pb.FormController;
+    var UserService = pb.UserService;
 
-  /**
-  * Creates an READER level user
-  */
-  function SignUp(){}
-  util.inherits(SignUp, FormController);
+    /**
+     * Creates an READER level user
+     * @class SignUp
+     * @constructor
+     */
+    function SignUp(){}
+    util.inherits(SignUp, FormController);
 
-  SignUp.prototype.render = function(cb) {
-    var self = this;
+    /**
+     * Initializes the controller
+     * @method init
+     * @param {Object} context
+     * @param {Function} cb
+     */
+    SignUp.prototype.init = function(context, cb) {
+        var self = this;
+        var init = function(err) {
 
-    this.getJSONPostParams(function(err, post) {
-      post.position   = '';
-      post.photo      = null;
-      post.admin      = pb.SecurityService.ACCESS_USER;
-      post.username   = BaseController.sanitize(post.username);
-      post.email      = BaseController.sanitize(post.email);
-      post.first_name = BaseController.sanitize(post.first_name);
-      post.last_name  = BaseController.sanitize(post.last_name);
+            /**
+             * @property dao
+             * @type {DAO}
+             */
+            self.dao = new pb.SiteQueryService({site: self.site, onlyThisSite: false});
 
-      var message = self.hasRequiredParams(post, self.getRequiredFields());
-      if(message) {
-        cb({
-          code: 400,
-          content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, message)
-        });
-        return;
-      }
+            /**
+             * @property contentService
+             * @type {ContentService}
+             */
+            self.contentService = new pb.ContentService({site: self.site});
 
-      var contentService = new pb.ContentService();
-      contentService.getSettings(function(err, contentSettings) {
-        //TODO handle error
+            /**
+             * @property service
+             * @type {UserService}
+             */
+            self.service = new UserService(self.getServiceContext());
 
-        var collection      = 'user';
-        var successMsg      = self.ls.get('ACCOUNT_CREATED');
-        if(contentSettings.require_verification) {
-          collection      = 'unverified_user';
-          successMsg      = self.ls.get('VERIFICATION_SENT') + post.email;
-          post.verification_code = util.uniqueId();
+            cb(err, true);
+        };
+        SignUp.super_.prototype.init.apply(this, [context, init]);
+    };
+
+    SignUp.prototype.render = function(cb) {
+        var self = this;
+        var post = this.body;
+        post.position   = '';
+        post.photo      = null;
+        post.admin      = pb.SecurityService.ACCESS_USER;
+        post.username   = BaseController.sanitize(post.username);
+        post.email      = BaseController.sanitize(post.email);
+        post.first_name = BaseController.sanitize(post.first_name);
+        post.last_name  = BaseController.sanitize(post.last_name);
+        var message = self.hasRequiredParams(post, self.getRequiredFields());
+        if(message) {
+            return cb({
+                code: 400,
+                content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, message)
+            });
         }
 
-        var user = pb.DocumentCreator.create(collection, post);
-
-        self.validateUniques(user, function(err, results) {
-          if(util.isError(err)) {
-            cb({
-              code: 400,
-              content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.get('EXISTING_USERNAME'))
-            });
-            return;
-          }
-
-          //check for validation failures
-          var errMsg = null;
-          if (results.verified_username > 0 || results.unverified_username > 0) {
-                    errMsg = self.ls.get('EXISTING_USERNAME');
-          }
-          else if (results.verified_email > 0 || results.unverified_email > 0) {
-            errMsg = self.ls.get('EXISTING_EMAIL');
-          }
-
-          if (errMsg) {
-            cb({
-              code: 400,
-              content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, errMsg)
-            });
-            return;
-          }
-
-          var dao = new pb.DAO();
-          dao.save(user, function(err, data) {
-            if(util.isError(err)) {
-              cb({
-                code: 500,
-                content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.get('ERROR_SAVING'))
-              });
-              return;
+        self.contentService.getSettings(function(err, contentSettings) {
+            if (util.isError(err)){
+                pb.log.error("ContentService.getSettings encountered an error. ERROR[%s]", err.stack);
+                return cb({
+                    code: 500,
+                    content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, err)
+                });
             }
 
-            cb({
-              content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, successMsg)
-            });
-
-            //send email for verification when required
-            if (contentSettings.require_verification) {
-              pb.users.sendVerificationEmail(user, util.cb);
+            var collection      = 'user';
+            var successRedirect = '/user/login';
+            var successMsg      = self.ls.g('login.ACCOUNT_CREATED');
+            if(contentSettings.require_verification) {
+                collection      = 'unverified_user';
+                successRedirect = '/user/verification_sent';
+                successMsg      = self.ls.g('users.VERIFICATION_SENT') + post.email;
+                post.verification_code = util.uniqueId();
             }
-          });
+
+            var user = pb.DocumentCreator.create(collection, post);
+
+            self.validateUniques(user, function(err, results) {
+                if(util.isError(err)) {
+                    return cb({
+                        code: 400,
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.g('users.EXISTING_USERNAME'))
+                    });
+                }
+
+                //check for validation failures
+                var errMsg = null;
+                if (results.verified_username > 0 || results.unverified_username > 0) {
+                    errMsg = self.ls.g('users.EXISTING_USERNAME');
+                }
+                else if (results.verified_email > 0 || results.unverified_email > 0) {
+                    errMsg = self.ls.g('users.EXISTING_EMAIL');
+                }
+
+                // Handle error
+                if (errMsg) {
+                    return cb({
+                        code: 400,
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, errMsg)
+                    });
+                }
+                self.dao.save(user, function(err, data) {
+                    if(util.isError(err)) {
+                        return cb({
+                            code: 500,
+                            content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.g('generic.ERROR_SAVING'))
+                        });
+                    }
+
+                    cb({
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, successMsg)
+                    });
+                });
+
+                //send email for verification when required
+                if (contentSettings.require_verification) {
+                    self.service.sendVerificationEmail(user, util.cb);
+                }
+            });
         });
-      });
-    });
-  };
-
-  SignUp.prototype.getRequiredFields = function() {
-    return ['username', 'email', 'password', 'confirm_password'];
-  };
-
-  SignUp.prototype.validateUniques = function(user, cb) {
-    var dao = new pb.DAO();
-    var tasks = {
-      verified_username: function(callback) {
-        dao.count('user', {username: user.username}, callback);
-      },
-      verified_email: function(callback) {
-        dao.count('user', {email: user.email}, callback);
-      },
-      unverified_username: function(callback) {
-        dao.count('unverified_user', {username: user.username}, callback);
-      },
-      unverified_email: function(callback) {
-        dao.count('unverified_user', {email: user.email}, callback);
-      },
     };
-    async.series(tasks, cb);
-  };
 
-  //exports
-  return SignUp;
+    SignUp.prototype.getRequiredFields = function() {
+        return ['username', 'email', 'password', 'confirm_password'];
+    };
+
+    /**
+     * @method validateUniques
+     * @param {Object} user
+     * @param {Function} cb
+     */
+    SignUp.prototype.validateUniques = function(user, cb) {
+        var self = this;
+        var tasks = {
+            verified_username: function(callback) {
+                self.dao.count('user', {username: user.username}, callback);
+            },
+            verified_email: function(callback) {
+                self.dao.count('user', {email: user.email}, callback);
+            },
+            unverified_username: function(callback) {
+                self.dao.count('unverified_user', {username: user.username}, callback);
+            },
+            unverified_email: function(callback) {
+                self.dao.count('unverified_user', {email: user.email}, callback);
+            }
+        };
+        async.series(tasks, cb);
+    };
+
+    //exports
+    return SignUp;
 };

@@ -28,9 +28,12 @@ module.exports = function CustomObjectServiceModule(pb) {
      * @class CustomObjectService
      * @constructor
      */
-    function CustomObjectService() {
+    function CustomObjectService(siteUid, onlyThisSite) {
         this.typesCache = {};
         this.typesNametoId = {};
+
+        this.site = pb.SiteService.getCurrentSite(siteUid);
+        this.siteQueryService = new pb.SiteQueryService({site: this.site, onlyThisSite: onlyThisSite});
     }
 
     //statics
@@ -358,8 +361,11 @@ module.exports = function CustomObjectServiceModule(pb) {
 
         //make sure we have the type for the object passed in
         getCustObjType(custObjType, function(err, custObjType) {
-            if (util.isError(err) || util.isNullOrUndefined(custObjType)) {
+            if (util.isError(err)) {
                return cb(err);
+            }
+            else if (util.isNullOrUndefined(custObjType)) {
+                return cb(new Error('An invalid custom object type: ' + custObjType + ' was found.'));
             }
 
             var tasks = util.getTasks(Object.keys(custObjType.fields), function(fieldNames, i) {
@@ -458,8 +464,7 @@ module.exports = function CustomObjectServiceModule(pb) {
         options.where.type = typeStr;
 
         var self = this;
-        var dao  = new pb.DAO();
-        dao.q(CustomObjectService.CUST_OBJ_COLL, options, function(err, custObjs) {
+        self.siteQueryService.q(CustomObjectService.CUST_OBJ_COLL, options, function(err, custObjs) {
             if (util.isArray(custObjs)) {
 
                 var tasks = util.getTasks(custObjs, function(custObjs, i) {
@@ -487,8 +492,8 @@ module.exports = function CustomObjectServiceModule(pb) {
             select: pb.DAO.PROJECT_ALL,
             order: {NAME_FIELD: pb.DAO.ASC}
         };
-        var dao  = new pb.DAO();
-        dao.q(CustomObjectService.CUST_OBJ_TYPE_COLL, opts, function(err, custObjTypes) {
+
+        this.siteQueryService.q(CustomObjectService.CUST_OBJ_TYPE_COLL, opts, function(err, custObjTypes) {
             if (util.isArray(custObjTypes)) {
                 //currently, mongo cannot do case-insensitive sorts.  We do it manually
                 //until a solution for https://jira.mongodb.org/browse/SERVER-90 is merged.
@@ -581,13 +586,12 @@ module.exports = function CustomObjectServiceModule(pb) {
             if (util.isObject(type)) {
                 typeStr = type[pb.DAO.getIdField()] + '';
             }
-    
+
             where.type = typeStr;
         }
 
         var self = this;
-        var dao  = new pb.DAO();
-        dao.loadByValues(where, CustomObjectService.CUST_OBJ_COLL, function(err, custObj) {
+        self.siteQueryService.loadByValues(where, CustomObjectService.CUST_OBJ_COLL, function(err, custObj) {
             if (util.isObject(custObj)) {
                 return self.fetchChildren(custObj, options, type, cb);
             }
@@ -629,8 +633,7 @@ module.exports = function CustomObjectServiceModule(pb) {
             return cb(Error("The where parameter must be provided in order to load a custom object type"));
         }
 
-        var dao = new pb.DAO();
-        dao.loadByValues(where, CustomObjectService.CUST_OBJ_TYPE_COLL, cb);
+        this.siteQueryService.loadByValues(where, CustomObjectService.CUST_OBJ_TYPE_COLL, cb);
     };
 
     /**
@@ -671,7 +674,7 @@ module.exports = function CustomObjectServiceModule(pb) {
                     errors.push(CustomObjectService.err('name', 'The name cannot be empty'));
                     return callback(null);
                 }
-                
+
                 //test for HTML
                 var sanitized = pb.BaseController.sanitize(custObj.name);
                 if (sanitized !== custObj.name) {
@@ -763,7 +766,6 @@ module.exports = function CustomObjectServiceModule(pb) {
 
         var self   = this;
         var errors = [];
-        var dao    = new pb.DAO();
         var tasks  = [
 
             //validate the name
@@ -783,7 +785,7 @@ module.exports = function CustomObjectServiceModule(pb) {
                 //test uniqueness of name
                 var where = {};
                 where[NAME_FIELD] = new RegExp('^'+util.escapeRegExp(custObjType.name)+'$', 'i');
-                dao.unique(CustomObjectService.CUST_OBJ_TYPE_COLL, where, custObjType[pb.DAO.getIdField()], function(err, isUnique){
+                self.siteQueryService.unique(CustomObjectService.CUST_OBJ_TYPE_COLL, where, custObjType[pb.DAO.getIdField()], function(err, isUnique){
                     if(!isUnique) {
                         errors.push(CustomObjectService.err('name', 'The name '+custObjType.name+' is not unique'));
                     }
@@ -869,8 +871,8 @@ module.exports = function CustomObjectServiceModule(pb) {
             where: pb.DAO.ANYWHERE,
             select: select
         };
-        var dao  = new pb.DAO();
-        dao.q(CustomObjectService.CUST_OBJ_TYPE_COLL, opts, function(err, types) {
+
+        this.siteQueryService.q(CustomObjectService.CUST_OBJ_TYPE_COLL, opts, function(err, types) {
             if (util.isError(err)) {
                 return cb(err);
             }
@@ -906,7 +908,7 @@ module.exports = function CustomObjectServiceModule(pb) {
             }
 
             var dao = new pb.DAO();
-            dao.save(custObj, cb);
+            self.siteQueryService.save(custObj, cb);
         });
     };
 
@@ -930,8 +932,7 @@ module.exports = function CustomObjectServiceModule(pb) {
                 return cb(err, errors);
             }
 
-            var dao = new pb.DAO();
-            dao.save(custObjType, cb);
+            self.siteQueryService.save(custObjType, cb);
         });
     };
 
@@ -959,7 +960,7 @@ module.exports = function CustomObjectServiceModule(pb) {
             options = {};
         }
 
-        if (!pb.validation.isIdStr(id, true)) {
+        if (!pb.validation.isId(id, true)) {
             return cb(new Error('INVALID_UID'));
         }
 
@@ -983,7 +984,7 @@ module.exports = function CustomObjectServiceModule(pb) {
     /**
      * Deletes all custom objects of a specified type
      * @method deleteForType
-     * @param {String|Object} custObjType A string ID of the custom object type or 
+     * @param {String|Object} custObjType A string ID of the custom object type or
      * the custom object type itself.
      * @param {Object} [options={}]
      * @param {Function} cb
@@ -995,7 +996,7 @@ module.exports = function CustomObjectServiceModule(pb) {
             typeId = custObjType.toString();
         }
         var dao = new pb.DAO();
-        dao.delete({type: custObjType}, CustomObjectService.CUST_OBJ_COLL, cb);
+        dao.delete({type: typeId}, CustomObjectService.CUST_OBJ_COLL, cb);
     };
 
     CustomObjectService.prototype.typeExists = function(typeName, cb) {
@@ -1003,8 +1004,8 @@ module.exports = function CustomObjectServiceModule(pb) {
         var where = {
             name: new RegExp('^'+util.escapeRegExp(typeName)+'$', 'ig')
         };
-        var dao = new pb.DAO();
-        dao.exists(CustomObjectService.CUST_OBJ_TYPE_COLL, where, cb);
+
+        this.siteQueryService.exists(CustomObjectService.CUST_OBJ_TYPE_COLL, where, cb);
     };
 
     /**
@@ -1089,7 +1090,7 @@ module.exports = function CustomObjectServiceModule(pb) {
                 if (!util.isBoolean(post[key])) {
 
                     if (util.isString(post[key])) {
-                        post[key] = "true" === post[key].toLowerCase();   
+                        post[key] = "true" === post[key].toLowerCase();
                     }
                     else if (!isNaN(post[key])) {
                         post[key] = post[key] ? true : false;
@@ -1104,7 +1105,7 @@ module.exports = function CustomObjectServiceModule(pb) {
             else if(custObjType.fields[key].field_type == CHILD_OBJECTS_TYPE) {
                 if(util.isString(post[key])) {
 
-                    //strips out any non ID strings.  
+                    //strips out any non ID strings.
                     //TODO This should really move to validation.
                     post[key] = post[key].split(',');
                     for (var i = post[key].length - 1; i >= 0; i--) {
@@ -1115,8 +1116,8 @@ module.exports = function CustomObjectServiceModule(pb) {
                 }
             }
             else if (custObjType.fields[key].field_type == PEER_OBJECT_TYPE) {
-                //do nothing because it can only been a string ID.  Validation 
-                //should verify this before persistence. 
+                //do nothing because it can only been a string ID.  Validation
+                //should verify this before persistence.
             }
             else if (util.isString(post[key])){
 
@@ -1129,10 +1130,10 @@ module.exports = function CustomObjectServiceModule(pb) {
 
     /**
      * Formats the raw post data for a sort ordering
-     * @static 
+     * @static
      * @method formatRawSortOrdering
      * @param {Object} post
-     * @param {Object} sortOrder the existing sort order object that the post data 
+     * @param {Object} sortOrder the existing sort order object that the post data
      * will be merged with
      * @return {Object} The formatted sort ordering object
      */
@@ -1168,13 +1169,13 @@ module.exports = function CustomObjectServiceModule(pb) {
         }
 
         var map                 = {};
-        map.text                = ls.get('TEXT');
-        map.number              = ls.get('NUMBER');
-        map.wysiwyg             = ls.get('WYSIWYG');
-        map.boolean             = ls.get('BOOLEAN').toLowerCase();
-        map.date                = ls.get('DATE');
-        map[PEER_OBJECT_TYPE]   = ls.get('PEER_OBJECT');
-        map[CHILD_OBJECTS_TYPE] = ls.get('CHILD_OBJECTS');
+        map.text                = ls.g('custom_objects.TEXT');
+        map.number              = ls.g('custom_objects.NUMBER');
+        map.wysiwyg             = ls.g('generic.WYSIWYG');
+        map.boolean             = ls.g('custom_objects.BOOLEAN').toLowerCase();
+        map.date                = ls.g('generic.DATE');
+        map[PEER_OBJECT_TYPE]   = ls.g('custom_objects.PEER_OBJECT');
+        map[CHILD_OBJECTS_TYPE] = ls.g('custom_objects.CHILD_OBJECTS');
 
         // Make the list of field types used in each custom object type, for display
         for(var i = 0; i < custObjTypes.length; i++) {

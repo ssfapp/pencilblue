@@ -16,10 +16,10 @@
 */
 
 module.exports = function(pb) {
-    
+
     //pb dependencies
     var util = pb.util;
-    
+
     /**
      * Saves the site's email settings
      */
@@ -30,16 +30,17 @@ module.exports = function(pb) {
         var self = this;
 
         this.getJSONPostParams(function(err, post) {
-            pb.settings.set('email_settings', post, function(data) {
+            var settingService = pb.SettingServiceFactory.getServiceBySite(self.site, true);
+            settingService.set('email_settings', post, function(data) {
                 if(util.isError(data)) {
                     cb({
                         code: 500,
-                        content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.get('ERROR_SAVING'), result)
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.g('generic.ERROR_SAVING'), result)
                     });
                     return;
                 }
 
-                cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, self.ls.get('EMAIL_SETTINGS') + ' ' +  self.ls.get('EDITED'))});
+                cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, self.ls.g('site_settings.EMAIL_SETTINGS') + ' ' +  self.ls.g('admin.EDITED'))});
             });
         });
     };

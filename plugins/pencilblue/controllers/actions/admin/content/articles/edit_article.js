@@ -22,9 +22,10 @@ module.exports = function(pb) {
 
     /**
      * Edits an article
+     * @deprecated Since 0.5.0
      */
     function EditArticle(){}
-    util.inherits(EditArticle, pb.BaseController);
+    util.inherits(EditArticle, pb.BaseAdminController);
 
     EditArticle.prototype.render = function(cb) {
         var self = this;
@@ -37,21 +38,18 @@ module.exports = function(pb) {
 
             var message = self.hasRequiredParams(post, self.getRequiredFields());
             if (message) {
-                cb({
+                return cb({
                     code: 400,
                     content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, message)
                 });
-                return;
             }
 
-            var dao = new pb.DAO();
-            dao.loadById(post.id, 'article', function(err, article) {
+            self.siteQueryService.loadById(post.id, 'article', function(err, article) {
                 if(util.isError(err) || article === null) {
-                    cb({
+                    return cb({
                         code: 400,
-                        content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.get('INVALID_UID'))
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.g('generic.INVALID_UID'))
                     });
-                    return;
                 }
 
                 //TODO should we keep track of contributors (users who edit)?
@@ -61,27 +59,26 @@ module.exports = function(pb) {
                 post = pb.DocumentCreator.formatIntegerItems(post, ['draft']);
                 pb.DocumentCreator.update(post, article, ['meta_keywords']);
 
-                pb.RequestHandler.urlExists(article.url, post.id, function(error, exists) {
+                pb.RequestHandler.urlExists(article.url, post.id, self.site, function(error, exists) {
                     var testError = (error !== null && typeof error !== 'undefined');
-                    
+
                     if( testError || exists || article.url.indexOf('/admin') === 0) {
-                        cb({
+                        return cb({
                             code: 400,
-                            content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.get('EXISTING_URL'))
+                            content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.g('generic.INVALID_URL'))
                         });
-                        return;
                     }
 
-                    dao.save(article, function(err, result) {
+                    self.siteQueryService.save(article, function(err, result) {
                         if(util.isError(err)) {
                             return cb({
                                 code: 500,
-                                content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.get('ERROR_SAVING'), result)
+                                content: pb.BaseController.apiResponse(pb.BaseController.API_FAILURE, self.ls.g('generic.ERROR_SAVING'), result)
                             });
                         }
 
                         post.last_modified = new Date();
-                        cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, article.headline + ' ' + self.ls.get('EDITED'), post)});
+                        cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, article.headline + ' ' + self.ls.g('admin.EDITED'), post)});
                     });
                 });
             });

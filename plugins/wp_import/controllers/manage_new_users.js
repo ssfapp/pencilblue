@@ -16,13 +16,35 @@
 */
 
 module.exports = function WPManageUsersViewControllerModule(pb) {
-    
+
     //pb dependencies
     var util          = pb.util;
     var PluginService = pb.PluginService;
+    var UserService   = pb.UserService;
 
     function WPManageUsersViewController() {}
     util.inherits(WPManageUsersViewController, pb.BaseController);
+
+    /**
+     * Initializes the controller
+     * @method init
+     * @param {Object} context
+     * @param {Function} cb
+     */
+    WPManageUsersViewController.prototype.init = function(context, cb) {
+        var self = this;
+        var init = function(err) {
+
+            /**
+             * @property service
+             * @type {UserService}
+             */
+            self.service = new UserService(self.getServiceContext());
+
+            cb(err, true);
+        };
+        WPManageUsersViewController.super_.prototype.init.apply(this, [context, init]);
+    };
 
     WPManageUsersViewController.prototype.render = function(cb) {
         var self = this;
@@ -54,27 +76,27 @@ module.exports = function WPManageUsersViewControllerModule(pb) {
                 active: 'active',
                 href: '#users',
                 icon: 'users',
-                title: self.ls.get('USERS')
+                title: self.ls.g('admin.USERS')
             }
         ];
 
         var pills = [
         {
             name: 'content_settings',
-            title: self.ls.get('MANAGE_NEW_USERS'),
+            title: self.ls.g('MANAGE_NEW_USERS'),
             icon: 'chevron-left',
             href: '/admin/plugins/wp_import/settings'
         }];
 
         var objects = {
-            navigation: pb.AdminNavigation.get(self.session, ['plugins', 'manage'], self.ls),
+            navigation: pb.AdminNavigation.get(self.session, ['plugins', 'manage'], self.ls, self.site),
             pills: pills,
             tabs: tabs,
             users: self.session.importedUsers,
-            adminOptions: pb.users.getAdminOptions(self.session, self.localizationService)
+            adminOptions: self.service.getAdminOptions(self.session, self.localizationService)
         };
 
-        this.setPageName(this.ls.get('IMPORT_WORDPRESS'));
+        this.setPageName(this.ls.g('IMPORT_WORDPRESS'));
         var angularObjects = pb.ClientJs.getAngularObjects(objects);
         self.ts.registerLocal('angular_objects', new pb.TemplateValue(angularObjects, false));
         self.ts.load('/admin/plugins/settings/wp_import/manage_new_users', function(err, result) {
@@ -94,6 +116,7 @@ module.exports = function WPManageUsersViewControllerModule(pb) {
                 method: 'get',
                 path: '/admin/plugins/wp_import/settings/manage_new_users',
                 auth_required: true,
+                inactive_site_access: true,
                 access_level: pb.SecurityService.ACCESS_MANAGING_EDITOR,
                 content_type: 'text/html'
             }

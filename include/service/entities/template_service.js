@@ -37,6 +37,7 @@ module.exports = function(pb) {
      * @module Services
      * @submodule Entities
      * @param {Object} [localizationService] The localization service object
+     * @param {String} siteUid context site for this service
      */
     function TemplateService(opts){
         var localizationService;
@@ -47,7 +48,7 @@ module.exports = function(pb) {
         else {
             localizationService = opts.ls;
         }
-        
+
         /**
          * @property localCallbacks
          * @type {Object}
@@ -64,7 +65,7 @@ module.exports = function(pb) {
         if (localizationService) {
             this.localizationService = localizationService;
         }
-        
+
         /**
          * @property activeTheme
          */
@@ -82,18 +83,19 @@ module.exports = function(pb) {
             var objType  = 'template';
             var services = [];
 
+            var options = {
+                objType: objType,
+                timeout: pb.config.templates.memory_timeout
+            };
+
             //add in-memory service
             if (pb.config.templates.use_memory){
-                var options = {
-                    objType: objType,
-                    timeout: pb.config.templates.memory_timeout
-                };
                 services.push(new pb.MemoryEntityService(options));
             }
 
             //add cache service
             if (pb.config.templates.use_cache) {
-                services.push(new pb.CacheEntityService(objType));
+                services.push(new pb.CacheEntityService(options));
             }
 
             //always add fs service
@@ -115,12 +117,26 @@ module.exports = function(pb) {
          * @type {Function}
          */
         this.unregisteredFlagHandler = null;
-        
+
+        /**
+         * @property siteUid
+         * @type {String}
+         */
+        this.siteUid = pb.SiteService.getCurrentSite(opts.site);
+
+        /**
+         * @property settingService
+         * @type {SettingService}
+         */
+        this.settingService = pb.SettingServiceFactory.getServiceBySite(this.siteUid);
+
         /**
          * @property pluginService
          * @type {PluginService}
          */
-        this.pluginService = new pb.PluginService();
+        this.pluginService = new pb.PluginService({site: this.siteUid});
+
+        this.init();
     }
 
     //constants
@@ -137,6 +153,25 @@ module.exports = function(pb) {
     var TEMPLATE_PIECE_FLAG   = 'flag';
 
     /**
+     * Tracks the template keys that do not exist on disk.  This allows us to
+     * skip disk reads after the first request for a non-existent template
+     * @private
+     * @static
+     * @property MIS_CACHE
+     * @type {Object}
+     */
+    var TEMPLATE_MIS_CACHE = {};
+
+    /**
+     * The absolute path to the plugins directory
+     * @private
+     * @static
+     * @property CUSTOM_PATH_PREFIX
+     * @type {String}
+     */
+    var CUSTOM_PATH_PREFIX = path.join(pb.config.docRoot, 'plugins') + path.sep;
+
+    /**
      * A container that provides the mapping for global call backs.  These should
      * only be added to at the start of the application or on plugin install/update.
      *
@@ -146,16 +181,7 @@ module.exports = function(pb) {
     var GLOBAL_CALLBACKS = {
         site_root: pb.config.siteRoot,
         site_name: pb.config.siteName,
-        site_logo: function(flag, callback) {
-            pb.settings.get('site_logo', function(err, logo) {
-                callback(null, logo ? logo : '/img/pb_logo.png');
-            });
-        },
         site_menu_logo: '/img/logo_menu.png',
-        site_icon: function(flag, callback) {
-            var pluginService = new pb.PluginService();
-            pluginService.getActiveIcon(callback);
-        },
         version: pb.config.version
     };
 
@@ -166,6 +192,27 @@ module.exports = function(pb) {
      */
     TemplateService.unregisteredFlagHandler = function(flag, cb) {
         cb(null, '^'+flag+'^');
+    };
+
+    /**
+     * Sets up the default flags required for the template service,
+     * including the flags that were previously considered to be global but
+     * now requires to be instanced with the TemplateService
+     *
+     * @method init
+     */
+    TemplateService.prototype.init = function () {
+        var self = this;
+
+        self.registerLocal('site_logo', function (err, callback) {
+           self.settingService.get('site_logo', function (err, logo) {
+               callback(err, logo || '/img/pb_logo.png');
+           });
+        });
+
+        self.registerLocal('site_icon', function (err, callback) {
+            self.pluginService.getActiveIcon(callback);
+        });
     };
 
     /**
@@ -189,8 +236,8 @@ module.exports = function(pb) {
     };
 
     /**
-     * When a flag is encountered that is not registered with the engine the 
-     * handler is called as a fail safe.  It is expected to return a string that 
+     * When a flag is encountered that is not registered with the engine the
+     * handler is called as a fail safe.  It is expected to return a string that
      * will be put in the place of the flag.
      *
      * @method setUnregisteredFlagHandler
@@ -207,8 +254,8 @@ module.exports = function(pb) {
     };
 
     /**
-     * When a flag is encountered that is not registered with the engine the 
-     * handler is called as a fail safe unless there is a locally registered handler.  
+     * When a flag is encountered that is not registered with the engine the
+     * handler is called as a fail safe unless there is a locally registered handler.
      * It is expected to return a string that will be put in the place of the flag.
      *
      * @method setGlobalUnregisteredFlagHandler
@@ -225,8 +272,8 @@ module.exports = function(pb) {
     };
 
     /**
-     * Sets the option that when true, instructs the engine to inspect the content 
-     * provided by a flag for more flags.  This is one way of providing iterative 
+     * Sets the option that when true, instructs the engine to inspect the content
+     * provided by a flag for more flags.  This is one way of providing iterative
      * processing of items.  See the sample plugin for an example.
      * @method setReprocess
      * @param {Boolean} reprocess
@@ -234,9 +281,9 @@ module.exports = function(pb) {
     TemplateService.prototype.setReprocess = function(reprocess) {
         this.reprocess = reprocess ? true : false;
     };
-    
+
     /**
-     * Retrieves the active theme.  When not provided the service retrieves it 
+     * Retrieves the active theme.  When not provided the service retrieves it
      * from the settings service.
      * @private
      * @method _getActiveTheme
@@ -246,7 +293,7 @@ module.exports = function(pb) {
         if (this.activeTheme) {
             return cb(null, this.activeTheme);
         }
-        pb.settings.get('active_theme', cb);
+        this.settingService.get('active_theme', cb);
     };
 
     /**
@@ -266,25 +313,46 @@ module.exports = function(pb) {
      */
     TemplateService.prototype.getTemplateContentsByPriority = function(relativePath, cb) {
         var self = this;
-        
+
         //build set of paths to search through
-        var hintedTheme   = this.getTheme();
-        var paths         = [];
-        if (hintedTheme) {
-            paths.push(TemplateService.getCustomPath(this.getTheme(), relativePath));
+        var paths = [];
+        var themePath = null;
+        var hintedTheme = this.getTheme();
+        if (hintedTheme && !TemplateService.isTemplateBlacklisted(hintedTheme, relativePath)) {
+            paths.push({
+                plugin: hintedTheme,
+                path: TemplateService.getCustomPath(hintedTheme, relativePath)
+            });
         }
+
         this._getActiveTheme(function(err, activeTheme){
-            if (activeTheme !== null) {
-                paths.push(TemplateService.getCustomPath(activeTheme, relativePath));
+
+            if (activeTheme !== null && !TemplateService.isTemplateBlacklisted(activeTheme, relativePath)) {
+                paths.push({
+                    plugin: activeTheme,
+                    path: TemplateService.getCustomPath(activeTheme, relativePath)
+                });
             }
 
             var activePlugins = self.pluginService.getActivePluginNames();
             for (var i = 0; i < activePlugins.length; i++) {
-                if (hintedTheme !== activePlugins[i] && 'pencilblue' !== activePlugins[i]) {
-                    paths.push(TemplateService.getCustomPath(activePlugins[i], relativePath));
+                if (!TemplateService.isTemplateBlacklisted(activePlugins[i], relativePath) &&
+                    hintedTheme !== activePlugins[i] && pb.config.plugins.default !== activePlugins[i]) {
+
+                    paths.push({
+                        plugin: activePlugins[i],
+                        path: TemplateService.getCustomPath(activePlugins[i], relativePath)
+                    });
                 }
             }
-            paths.push(TemplateService.getDefaultPath(relativePath));
+
+            //now add the defalt if appropriate
+            if (!TemplateService.isTemplateBlacklisted(pb.config.plugins.default, relativePath)) {
+                paths.push({
+                    plugin: pb.config.plugins.default,
+                    path: TemplateService.getDefaultPath(relativePath)
+                });
+            }
 
             //iterate over paths until a valid template is found
             var i        = 0;
@@ -295,9 +363,13 @@ module.exports = function(pb) {
                 function(callback) {
 
                     //attempt to load template
-                    TEMPLATE_LOADER.get(paths[i], function(err, templateData){
+                    TEMPLATE_LOADER.get(paths[i].path, function(err, templateData) {
                         template = templateData;
                         doLoop   = util.isError(err) || !util.isObject(template);
+                        if (doLoop) {
+                            TemplateService.blacklistTemplate(paths[i].plugin, relativePath);
+                        }
+
                         i++;
                         callback();
                     });
@@ -322,13 +394,13 @@ module.exports = function(pb) {
         if (!util.isFunction(cb)) {
             throw new Error('cb parameter must be a function');
         }
-        
+
         var self = this;
         this.getTemplateContentsByPriority(templateLocation, function(err, templateContents) {
             if (util.isError(err)) {
                 return cb(err, null);
             }
-            else if (!templateContents) {
+            if (!templateContents) {
                 return cb(new Error('Failed to find a matching template for location: '+templateLocation), null);
             }
 
@@ -351,9 +423,10 @@ module.exports = function(pb) {
         else if (!util.isFunction(cb)) {
             throw new Error('cb parameter must be a function');
         }
-        
+
         //iterate parts
         var self  = this;
+        var isSilly = pb.log.isSilly();
         var tasks = util.getTasks(content.parts, function(parts, i) {
             return function(callback) {
 
@@ -365,7 +438,7 @@ module.exports = function(pb) {
                 else if (part.type === TEMPLATE_PIECE_FLAG) {
 
                     self.processFlag(part.val, function(err, subContent) {
-                        if (pb.log.isSilly()) {
+                        if (isSilly) {
                             var str = subContent;
                             if (util.isString(str) && str.length > 20) {
                                 str = str.substring(0, 17)+'...';
@@ -416,16 +489,28 @@ module.exports = function(pb) {
         var doFlagProcessing = function(flag, cb) {
             var tmp;
             if ((tmp = self.localCallbacks[flag]) !== undefined) {//local callbacks
-                self.handleReplacement(flag, tmp, cb);
-                return;
+                return self.handleReplacement(flag, tmp, cb);
             }
             else if ((tmp = GLOBAL_CALLBACKS[flag]) !== undefined) {//global callbacks
-                self.handleReplacement(flag, tmp, cb);
-                return;
+                return self.handleReplacement(flag, tmp, cb);
             }
             else if (flag.indexOf(LOCALIZATION_PREFIX) == 0 && self.localizationService) {//localization
-                cb(null, self.localizationService.get(flag.substring(LOCALIZATION_PREFIX_LEN)));
-                return;
+
+                //TODO how do we express params?  Other template vars?
+                var key = flag.substring(LOCALIZATION_PREFIX_LEN);
+                var opts = {
+                    site: self.siteUid,
+                    plugin: self.activeTheme,
+                    defaultVal: null,
+                    params: {/*TODO use the model for this*/}
+                };
+                var val = self.localizationService.g(key, opts);
+                if (!util.isString(val)) {
+
+                    //TODO this is here to be backwards compatible. Remove in 0.6.0
+                    val = self.localizationService.get(key);
+                }
+                return cb(null, val);
             }
             else if (flag.indexOf(TEMPLATE_PREFIX) == 0) {//sub-templates
                 self.handleTemplateReplacement(flag, function(err, template) {
@@ -440,7 +525,7 @@ module.exports = function(pb) {
                     pb.log.silly("TemplateService: Failed to process flag [%s]", flag);
                 }
 
-                //the flag was not registered.  Hand it off to a handler for any 
+                //the flag was not registered.  Hand it off to a handler for any
                 //catch-all processing.
                 if (util.isFunction(self.unregisteredFlagHandler)) {
                     self.unregisteredFlagHandler(flag, cb);
@@ -536,6 +621,69 @@ module.exports = function(pb) {
     };
 
     /**
+     * Registers a model with the template service.  It processes each
+     * key/value pair in the object and creates a dot notated string
+     * registration.  For the object { key: 'value' } with a model name of
+     * "item" would result in 1 local value registration in which the key would
+     * be "item.key".  If no model name existed the registered key would be:
+     * "key". The algorithm fails fast.  On the first bad registeration the
+     * algorithm stops registering keys and returns.  Additionally, if a bad
+     * model object is pass an Error object is thrown.
+     * @method registerModel
+     * @param {Object} model The model is inspect
+     * @param {String} [modelName] The optional name of the model.  The name
+     * will prefix all of the model's keys.
+     * @return {Boolean} TRUE when all keys were successfully registered.
+     * FALSE if a single items fails to register.
+     */
+    TemplateService.prototype.registerModel = function(model, modelName) {
+        if (!util.isObject(model)) {
+            throw new Error('The model parameter is required');
+        }
+        if (!util.isString(modelName)) {
+            modelName = '';
+        }
+
+        //load up the first set of items
+        var queue = [];
+        util.forEach(model, function(val, key) {
+            queue.push({
+                key: key,
+                prefix: modelName,
+                value: val
+            });
+        });
+
+        //create the processing function
+        var self = this;
+        var register = function(prefix, key, value) {
+
+            var flag = (prefix ? prefix + '.' : prefix) + key;
+            if (util.isObject(value) && !(value instanceof TemplateValue)) {
+
+                var result = true;
+                util.forEach(value, function(value, key) {
+                    queue.push({
+                        key: key,
+                        prefix: flag,
+                        value: value
+                    });
+                });
+                return true;
+            }
+            return self.registerLocal(flag, value);
+        };
+
+        //process the queue until it is empty
+        var completedResult = true;
+        while (queue.length > 0 && completedResult) {
+            var item = queue.shift();
+            completedResult &= register(item.prefix, item.key, item.value);
+        };
+        return completedResult;
+    };
+
+    /**
      * Retrieves the content template names and locations for the active theme.
      *
      * @method getTemplatesForActiveTheme
@@ -543,8 +691,8 @@ module.exports = function(pb) {
      */
     TemplateService.prototype.getTemplatesForActiveTheme = function(cb) {
         var self = this;
-        
         this._getActiveTheme(function(err, activeTheme) {
+
             if(util.isError(err) || activeTheme == null) {
                 cb(err, []);
                 return;
@@ -552,13 +700,13 @@ module.exports = function(pb) {
 
             //function to retrieve plugin
             var getPlugin = function(uid, callback) {
-                if (uid === 'pencilblue') {
+                if (uid === pb.config.plugins.default) {
 
                     //load pencilblue plugin
-                    var file = pb.PluginService.getDetailsPath('pencilblue');
+                    var file = pb.PluginService.getDetailsPath(pb.config.plugins.default);
                     pb.PluginService.loadDetailsFile(file, function(err, pb) {
                         if (pb) {
-                            pb.dirName = 'pencilblue';
+                            pb.dirName = pb.config.plugins.default;
                         }
                         callback(err, pb);
                     });
@@ -585,14 +733,14 @@ module.exports = function(pb) {
             });
         });
     };
-    
+
     /**
-     * Creates an instance of Template service based 
+     * Creates an instance of Template service based
      * @method getChildInstance
      * @return {TemplateService}
      */
     TemplateService.prototype.getChildInstance = function() {
-        
+
         var opts = {
             ls: this.localizationService,
             activeTheme: this.activeTheme
@@ -622,13 +770,14 @@ module.exports = function(pb) {
      * Articles and pages.
      *
      * @method getAvailableContentTemplates
+     * @param site
      * @return {Array} An array of template definitions
      */
-    TemplateService.getAvailableContentTemplates = function() {
-        var templates = pb.PluginService.getActiveContentTemplates();
+    TemplateService.getAvailableContentTemplates = function(site) {
+        var templates = pb.PluginService.getActiveContentTemplates(site);
         templates.push(
             {
-                theme_uid: 'pencilblue',
+                theme_uid: pb.config.plugins.default,
                 theme_name: 'PencilBlue',
                 name: "Default",
                 file: "index"
@@ -663,7 +812,7 @@ module.exports = function(pb) {
      * @return {string} The absolute path
      */
     TemplateService.getDefaultPath = function(templateLocation){
-        return path.join(pb.config.docRoot, 'plugins', 'pencilblue', 'templates', templateLocation + '.html');
+        return CUSTOM_PATH_PREFIX + pb.config.plugins.default + '/templates/' + templateLocation + '.html';
     };
 
     /**
@@ -676,7 +825,7 @@ module.exports = function(pb) {
      * @return {string} The absolute path
      */
     TemplateService.getCustomPath = function(themeName, templateLocation){
-        return path.join(pb.config.docRoot, 'plugins', themeName, 'templates', templateLocation + '.html');
+        return CUSTOM_PATH_PREFIX + themeName + '/templates/' + templateLocation + '.html';
     };
 
     /**
@@ -757,6 +906,33 @@ module.exports = function(pb) {
     };
 
     /**
+     * Checks to see if a template has been blacklisted
+     * @static
+     * @method isTemplateBlacklisted
+     * @param {String} theme
+     * @param {String} relativePath
+     * @return {Boolean}
+     */
+    TemplateService.isTemplateBlacklisted = function(theme, relativePath) {
+        return TEMPLATE_MIS_CACHE[theme + '|' + relativePath];
+    };
+
+    /**
+     * Blacklists a template for a theme.  This means that the template service
+     * will not consider this theme and path combination the next time it is
+     * prompted to check for its existence
+     * @static
+     * @method blacklistTemplate
+     * @param {String} theme
+     * @param {String} relativePath
+     * @return {Boolean}
+     */
+    TemplateService.blacklistTemplate = function(theme, relativePath) {
+        pb.log.silly('TemplateService: Blacklisting template THEME=%s PATH=%s', theme, relativePath);
+        return (TEMPLATE_MIS_CACHE[theme + '|' + relativePath] = true);
+    };
+
+    /**
      * A value that has special meaning to TemplateService.  It acts as a wrapper
      * for a value to be used in a template along with special processing
      * instructions.
@@ -823,7 +999,7 @@ module.exports = function(pb) {
     TemplateValue.prototype.toString = function() {
         return this.val();
     };
-    
+
     return {
         TemplateService: TemplateService,
         TemplateValue: TemplateValue

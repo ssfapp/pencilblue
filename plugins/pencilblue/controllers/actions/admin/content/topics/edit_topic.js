@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2015  PencilBlue, LLC
+    Copyright (C) 2016  PencilBlue, LLC
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -16,15 +16,15 @@
 */
 
 module.exports = function(pb) {
-    
+
     //pb dependencies
     var util = pb.util;
-    
+
     /**
      * Creates a new topic
      */
     function NewTopic(){}
-    util.inherits(NewTopic, pb.BaseController);
+    util.inherits(NewTopic, pb.BaseAdminController);
 
     NewTopic.prototype.render = function(cb) {
         var self = this;
@@ -49,36 +49,35 @@ module.exports = function(pb) {
                 return;
             }
 
-            var dao = new pb.DAO();
-            dao.loadById(vars.id, 'topic', function(err, topic) {
+            self.siteQueryService.loadById(vars.id, 'topic', function(err, topic) {
                 if(util.isError(err) || !util.isObject(topic)) {
                     cb({
                         code: 400,
-                        content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.get('INVALID_UID'))
+                        content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.g('generic.INVALID_UID'))
                     });
                     return;
                 }
 
                 pb.DocumentCreator.update(post, topic);
 
-                dao.loadByValue('name', topic.name, 'topic', function(err, testTopic) {
+                self.siteQueryService.loadByValue('name', topic.name, 'topic', function(err, testTopic) {
                     if(testTopic && !testTopic[pb.DAO.getIdField()].equals(topic[pb.DAO.getIdField()])) {
                         cb({
                             code: 400,
-                            content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.get('EXISTING_TOPIC'))
+                            content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.g('topics.EXISTING_TOPIC'))
                         });
                         return;
                     }
 
-                    dao.save(topic, function(err, result) {
+                    self.siteQueryService.save(topic, function(err, result) {
                         if(util.isError(err)) {
                             return cb({
                                 code: 500,
-                                content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.get('ERROR_SAVING'))
+                                content: pb.BaseController.apiResponse(pb.BaseController.API_ERROR, self.ls.g('generic.ERROR_SAVING'))
                             });
                         }
 
-                        cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, topic.name + ' ' + self.ls.get('EDITED'))});
+                        cb({content: pb.BaseController.apiResponse(pb.BaseController.API_SUCCESS, topic.name + ' ' + self.ls.g('admin.EDITED'))});
                     });
                 });
             });
