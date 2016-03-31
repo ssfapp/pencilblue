@@ -57,6 +57,10 @@ module.exports = {
         "workers": 1,
         "self_managed": true
     },
-    "siteIP": "0.0.0.0"
+    "siteIP": "0.0.0.0",
+    "multisite": {
+        "enabled": false,
+        "globalRoot": 'http://www.startupsantafe.com'
+    }
 };
 
